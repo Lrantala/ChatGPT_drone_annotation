@@ -1,0 +1,8 @@
+.idea/
+*.json
+temp_save/
+data/
+*.pyc
+*.csv
+*.env
+*.json

@@ -2,6 +2,7 @@
 import csv
 import logging
 from os import getenv
+from os import path
 import time
 import json
 import openai
@@ -385,77 +386,89 @@ if __name__ == '__main__':
                                             messages=messages_df['Combined_Comment_Text'].tolist(),
                                             id_parameter=messages_df['combined_id'].tolist())
 
-        with open('3k_td_classificationv2.json', 'w', encoding='utf-8') as f:
+        with open('3k_td_classification.json', 'w', encoding='utf-8') as f:
             json.dump(responses, f, ensure_ascii=False, indent=4)
 
         sample_df = pd.DataFrame(responses)
-        sample_df.to_csv(path_or_buf='3k_td_classificationv2.csv', sep=';', index=False)
+        sample_df.to_csv(path_or_buf='3k_td_classification.csv', sep=';', index=False)
     elif args.mode == "2nd_rd":
         ### Read the annotated SATD-csv after the middle check in R.
         messages_df = pd.read_csv(filepath_or_buffer=args.file, sep=";")
-        messages_df["ChatGPT_R2"] = "Not_Done"
         logging.info("Dataset loaded.")
         messages_df_cleaned = clean_2nd_rd_dataframe(df=messages_df)
 
-        # Merging the results together and rearranging to original row order
-        messages_df = messages_df.drop(messages_df.index[messages_df_cleaned.index])
-        messages_merged = pd.concat([messages_df, messages_df_cleaned], ignore_index=False)
-        messages_merged = messages_merged.sort_index(ascending=True)
         # Create the end of the prompt
         prompt_list = create_prompt_list_from_df(df=messages_df_cleaned)
         logging.info("Prompt list created.")
 
+        if path.exists('3k_td_classification_AI1_H1_AI2_done.csv'):
+            # Merging pack the annotated part to the original
+            annotated_df = pd.read_csv(filepath_or_buffer="3k_td_classification_AI1_H1_AI2_done.csv", sep=";")
+            messages_df_cleaned['Classification2'] = messages_df_cleaned.Comment_Id.map(annotated_df.set_index('Comment_Id')['Classification'])
+            messages_df_cleaned["ChatGPT_R2"] = "Not_Done"
 
-        td_2nd_rd_classification_prompt = '''Comment can be categorised as belonging to one of the following categories:
-                Architectural Debt, Build Debt, Code Debt, Design Debt, Defect Debt, Documentation Debt, Requirement Debt, Test Debt, Unknown Debt or No Debt.
+            # Merging the results together and rearranging to original row order
+            messages_df = messages_df.drop(messages_df.index[messages_df_cleaned.index])
+            messages_df['Classification2'] = "Not_Done"
+            messages_df["ChatGPT_R2"] = "Not_Done"
 
-                A comment containing a keyword TODO, FIXME, HACK or XXX are always classified into one of the categories besides No Debt. 
+            messages_merged = pd.concat([messages_df, messages_df_cleaned], ignore_index=False)
+            messages_merged = messages_merged.sort_index(ascending=True)
+            messages_merged.to_csv(path_or_buf='3k_td_classification_AI1_H1_AI2_done_before_R.csv', sep=';', index=False)
+            logging.info("Saved the df to be analyzed with R.")
+        else:
+            td_2nd_rd_classification_prompt = '''Comment can be categorised as belonging to one of the following categories:
+                    Architectural Debt, Build Debt, Code Debt, Design Debt, Defect Debt, Documentation Debt, Requirement Debt, Test Debt, Unknown Debt or No Debt.
+    
+                    A comment containing a keyword TODO, FIXME, HACK or XXX are always classified into one of the categories besides No Debt. 
+    
+                    Architectural Debt Explanation: Architectural Debt refers to problems encountered in project architecture, for example, violation of modularity, which can
+                    affect architectural requirements (performance, robustness, among others), or architecture decisions that make
+                    compromises in some internal quality aspects, such as maintainability.
+    
+                    Build Debt Explanation: Build Debt refers to build related issues that make this task harder, and more 
+                    time/processing consuming unnecessarily, including unnecessary code and ill-defined dependencies making the process 
+                    slower than it should be, or to flaws in a software system, in its build system,
+                    or in its build process that make the build overly complex and difficult.
+    
+                    Code Debt Explanation: Code Debt refers to problems found in the source code which can affect negatively the legibility
+                    of the code making it more difficult to be maintained, including issues related to bad coding practices, 
+                    or to poorly written code that violates best coding practices or coding rules. Examples include code duplication and overly complex code.
+    
+                    Design Debt Explanation: Design Debt refers to technical shortcuts that are taken in detailed design or use of practices
+                    which violate the principles of good (object-oriented) design.
+    
+                    Defect Debt Explanation: Defect Debt refers to defects, bugs, or failures found in software systems or known defects
+                    but due to competing priorities, and limited resources have to be deferred to a later time.
+    
+                    Documentation Debt Explanation: Documentation Debt is insufficient, incomplete, missing, inadequate incomplete or outdated documentation.
+    
+                    Requirement Debt Explanation: Requirement Debt is the distance between the optimal requirements specification and the actual system implementation 
+                    or tradeoffs made with respect to what requirements the development team need to implement or how to implement them.
+    
+                    Test Debt Explanation: Test Debt is shortcuts taken in testing or issues found in testing activities which can affect the quality of testing activities.
+    
+                    Unknown Debt Explanation: Unknown Debt refers to issues in the code, which does not fall into any of the other categories. One example of Unknown Debt is a lone keyword of TODO, FIXME, HACK or XXX without any explanation.
+    
+                    No Debt Explanation: No Debt refers to cases, where none of the other categories match, and the comment does not refer to any issues.
+    
+                    I will give you a Comment and the only possible categories it could belong to. Consider and explain each category separately why it would fit. Finally, choose only one category as your answer, the one which fits the best.
+    
+                    Return the answer in following format: 
+    
+                    Explanation: Short, 3-5 sentence explanation on the classification.
+                    Classification: Architectural Debt, Build Debt, Code Debt, Design Debt, Defect Debt, Documentation Debt, Requirement Debt, Test Debt, Unknown Debt or No Debt. Category must match one of the provided ones.
+                    
+                    '''
 
-                Architectural Debt Explanation: Architectural Debt refers to problems encountered in project architecture, for example, violation of modularity, which can
-                affect architectural requirements (performance, robustness, among others), or architecture decisions that make
-                compromises in some internal quality aspects, such as maintainability.
 
-                Build Debt Explanation: Build Debt refers to build related issues that make this task harder, and more 
-                time/processing consuming unnecessarily, including unnecessary code and ill-defined dependencies making the process 
-                slower than it should be, or to flaws in a software system, in its build system,
-                or in its build process that make the build overly complex and difficult.
 
-                Code Debt Explanation: Code Debt refers to problems found in the source code which can affect negatively the legibility
-                of the code making it more difficult to be maintained, including issues related to bad coding practices, 
-                or to poorly written code that violates best coding practices or coding rules. Examples include code duplication and overly complex code.
+            responses = send_messages_maldonado(prompt_message=td_2nd_rd_classification_prompt,
+                                                messages=prompt_list,
+                                                id_parameter=messages_df_cleaned['Comment_Id'].tolist())
 
-                Design Debt Explanation: Design Debt refers to technical shortcuts that are taken in detailed design or use of practices
-                which violate the principles of good (object-oriented) design.
+            with open('3k_td_classification_AI1_H1_AI2_done.json', 'w', encoding='utf-8') as f:
+                json.dump(responses, f, ensure_ascii=False, indent=4)
 
-                Defect Debt Explanation: Defect Debt refers to defects, bugs, or failures found in software systems or known defects
-                but due to competing priorities, and limited resources have to be deferred to a later time.
-
-                Documentation Debt Explanation: Documentation Debt is insufficient, incomplete, missing, inadequate incomplete or outdated documentation.
-
-                Requirement Debt Explanation: Requirement Debt is the distance between the optimal requirements specification and the actual system implementation 
-                or tradeoffs made with respect to what requirements the development team need to implement or how to implement them.
-
-                Test Debt Explanation: Test Debt is shortcuts taken in testing or issues found in testing activities which can affect the quality of testing activities.
-
-                Unknown Debt Explanation: Unknown Debt refers to issues in the code, which does not fall into any of the other categories. One example of Unknown Debt is a lone keyword of TODO, FIXME, HACK or XXX without any explanation.
-
-                No Debt Explanation: No Debt refers to cases, where none of the other categories match, and the comment does not refer to any issues.
-
-                I will give you a Comment and the only possible categories it could belong to. Consider and explain each category separately why it would fit. Finally, choose only one category as your answer, the one which fits the best.
-
-                Return the answer in following format: 
-
-                Explanation: Short, 3-5 sentence explanation on the classification.
-                Classification: Architectural Debt, Build Debt, Code Debt, Design Debt, Defect Debt, Documentation Debt, Requirement Debt, Test Debt, Unknown Debt or No Debt. Category must match one of the provided ones.
-                
-                '''
-
-        responses = send_messages_maldonado(prompt_message=td_2nd_rd_classification_prompt,
-                                            messages=prompt_list,
-                                            id_parameter=messages_df_cleaned['Comment_Id'].tolist())
-
-        with open('3k_td_classification_AI1_H1_AI2_done.json', 'w', encoding='utf-8') as f:
-            json.dump(responses, f, ensure_ascii=False, indent=4)
-
-        sample_df = pd.DataFrame(responses)
-        sample_df.to_csv(path_or_buf='3k_td_classification_AI1_H1_AI2_done.csv', sep=';', index=False)
+            sample_df = pd.DataFrame(responses)
+            sample_df.to_csv(path_or_buf='3k_td_classification_AI1_H1_AI2_done.csv', sep=';', index=False)
